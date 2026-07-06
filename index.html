@@ -216,10 +216,17 @@
     <!-- ================= Simulation canvas ================= -->
     <main class="stage">
       <div class="stage-toolbar">
+        <label class="chk">Figure
+          <select id="figureStyle">
+            <option value="vector" selected>Vector</option>
+            <option value="realistic">Realistic</option>
+            <option value="both">Both</option>
+          </select>
+          <span class="tip" tabindex="0">ⓘ<span class="tipbox">Vector = stick-figure skeleton with joint angles. Realistic = a fleshed body silhouette drawn to scale. Both = the skeleton overlaid on the body.</span></span>
+        </label>
         <label class="chk"><input type="checkbox" id="ghostToggle" checked> Ideal ghost overlay
           <span class="tip" tabindex="0">ⓘ<span class="tipbox">Semi-transparent reference runner using the computed ideal posture for the current speed, grade and cadence. Compare your figure against it directly.</span></span>
         </label>
-        <label class="chk"><input type="checkbox" id="silhouetteToggle"> Silhouette skin</label>
         <label class="chk"><input type="checkbox" id="scrollToggle" checked> Scrolling ground</label>
       </div>
       <div class="canvas-wrap">

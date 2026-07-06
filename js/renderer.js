@@ -125,7 +125,7 @@
       cadenceSpm: src.cadenceSpm,
       duty: clamp(src.gctMs / cycleMs, 0.18, 0.5),
       gctMs: src.gctMs,
-      speedCmS: (ideal ? M().state.speedKmh : M().state.speedKmh) * 100000 / 3600,
+      speedCmS: M().state.speedKmh * 100000 / 3600, // shared speed for both figures
       overstrideCm: src.overstrideCm,
       kneeLiftDeg: src.kneeLiftDeg,
       footStrike: src.footStrike || M().state.footStrike,
@@ -179,7 +179,9 @@
       const a = armPose(t, p);
       const armA = a.shoulder + p.trunkLeanDeg; // hangs off the leaning trunk
       const elbow = pt(shoulder.x + upperArm * dir(armA).x, shoulder.y + upperArm * dir(armA).y);
-      const foreA = armA - a.elbow; // elbow flexion carries the forearm forward
+      // elbow flexes FORWARD (+): the forearm stays in front of the body across
+      // the whole swing, hand tracking up toward the chest — never behind.
+      const foreA = armA + a.elbow;
       const wrist = pt(elbow.x + forearm * dir(foreA).x, elbow.y + forearm * dir(foreA).y);
       return { elbow, wrist };
     });
@@ -201,34 +203,14 @@
   function seg(a, b) { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
   function joint(pnt, r) { ctx.beginPath(); ctx.arc(pnt.x, pnt.y, r, 0, Math.PI * 2); ctx.fill(); }
 
-  function drawFigure(fig, stroke, jointFill, alpha, silhouette, scale) {
+  /* ---- Vector skeleton: thin bones + joint dots ------------------------- */
+  function drawSkeleton(fig, stroke, jointFill, alpha) {
     ctx.save();
-    ctx.globalAlpha = alpha;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-
-    const allParts = () => {
-      for (const i of [1, 0]) {
-        const L = fig.legs[i], A = fig.arms[i];
-        seg(fig.hip, L.knee); seg(L.knee, L.ankle); seg(L.heel, L.toe);
-        seg(fig.shoulder, A.elbow); seg(A.elbow, A.wrist);
-      }
-      seg(fig.hip, fig.shoulder);
-      seg(fig.pelvis.a, fig.pelvis.b);
-      seg(fig.shoulder, fig.neck);
-      ctx.beginPath(); ctx.arc(fig.head.x, fig.head.y, fig.headR, 0, Math.PI * 2); ctx.stroke();
-    };
-
-    if (silhouette) { // soft thick pass behind the skeleton
-      ctx.strokeStyle = stroke;
-      ctx.globalAlpha = alpha * 0.22;
-      ctx.lineWidth = 11 * scale + 4;
-      allParts();
-      ctx.globalAlpha = alpha;
-    }
-
     ctx.strokeStyle = stroke;
     ctx.lineWidth = 3;
+
     // far side dimmer for depth
     ctx.globalAlpha = alpha * 0.45;
     const L1 = fig.legs[1], A1 = fig.arms[1];
@@ -246,14 +228,58 @@
 
     if (jointFill) {
       ctx.fillStyle = jointFill;
-      const r = 3.5;
-      for (const p of [fig.hip, fig.shoulder, L0.knee, L0.ankle, A0.elbow, A0.wrist]) joint(p, r);
+      for (const p of [fig.hip, fig.shoulder, L0.knee, L0.ankle, A0.elbow, A0.wrist]) joint(p, 3.5);
     }
     ctx.restore();
   }
 
+  /* ---- Realistic body: fleshed limbs as rounded capsules + torso + head -- */
+  function capsule(a, b, thickCm, scale) {
+    ctx.lineWidth = thickCm * scale;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  function limbSet(fig, i, scale) {
+    const L = fig.legs[i], A = fig.arms[i];
+    capsule(fig.hip, L.knee, 15, scale);   // thigh
+    capsule(L.knee, L.ankle, 10, scale);   // shin
+    capsule(L.ankle, L.toe, 7, scale);     // foot
+    capsule(L.heel, L.toe, 6, scale);
+    capsule(fig.shoulder, A.elbow, 9, scale);  // upper arm
+    capsule(A.elbow, A.wrist, 6.5, scale);     // forearm
+  }
+  function drawSilhouette(fig, fill, alpha, scale) {
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = fill;
+    ctx.fillStyle = fill;
+
+    // far limbs, dimmed for depth
+    ctx.globalAlpha = alpha * 0.5;
+    limbSet(fig, 1, scale);
+
+    // torso as a rounded barrel along the spine, then near limbs, neck, head
+    ctx.globalAlpha = alpha;
+    capsule(fig.hip, fig.shoulder, 27, scale);
+    limbSet(fig, 0, scale);
+    capsule(fig.shoulder, fig.neck, 9, scale);
+    ctx.beginPath(); ctx.arc(fig.head.x, fig.head.y, fig.headR * 1.18, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  /* Draw the live figure in the requested style: vector, realistic, or both */
+  function drawFigure(fig, style, bodyFill, skeletonStroke, jointFill, alpha, scale) {
+    if (style === "realistic" || style === "both") {
+      drawSilhouette(fig, bodyFill, style === "both" ? alpha * 0.45 : alpha, scale);
+    }
+    if (style === "vector" || style === "both") {
+      // in "both" the body already carries identity, so drop the joint dots
+      drawSkeleton(fig, skeletonStroke, style === "both" ? null : jointFill, alpha);
+    }
+  }
+
   /* terrain band, tilted by grade and scrolling with speed */
-  function drawGround(groundY, cx, gradePct, surface, scale) {
+  function drawGround(groundY, cx, gradePct, surface, scale, strideLenM) {
     const slope = Math.atan(gradePct / 100);
     ctx.save();
     ctx.translate(cx, groundY);
@@ -303,6 +329,40 @@
           break;
       }
     }
+
+    // ---- metre ruler: ticks + labels in world distance, scrolling with the
+    // runner so the foot's travel per step (the stride) is measurable ---------
+    ctx.globalAlpha = 1;
+    const halfWorldCm = (W / scale) * 1.2;
+    const firstM = Math.floor((groundScroll - halfWorldCm) / 100);
+    const lastM = Math.ceil((groundScroll + halfWorldCm) / 100);
+    ctx.textAlign = "center";
+    ctx.font = "600 10px system-ui, sans-serif";
+    for (let m = firstM; m <= lastM; m++) {
+      const x = (m * 100 - groundScroll) * scale;
+      ctx.strokeStyle = colors.baseline;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 11); ctx.stroke();
+      ctx.fillStyle = colors.soft;
+      ctx.fillText(`${m} m`, x, 23);
+      const xh = (m * 100 + 50 - groundScroll) * scale; // half-metre minor tick
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(xh, 0); ctx.lineTo(xh, 6); ctx.stroke();
+    }
+
+    // ---- stride bracket under the runner: current stride length to scale ----
+    const swPx = strideLenM * 100 * scale;
+    const by = 34;
+    ctx.strokeStyle = colors.series1;
+    ctx.fillStyle = colors.series1;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-swPx / 2, by); ctx.lineTo(swPx / 2, by); ctx.stroke();
+    for (const ex of [-swPx / 2, swPx / 2]) {
+      ctx.beginPath(); ctx.moveTo(ex, by - 5); ctx.lineTo(ex, by + 5); ctx.stroke();
+    }
+    ctx.font = "600 11px system-ui, sans-serif";
+    ctx.fillText(`stride ${strideLenM.toFixed(2)} m`, 0, by + 16);
+    ctx.textAlign = "start";
     ctx.restore();
   }
 
@@ -348,18 +408,22 @@
     ctx.fillStyle = colors.sky;
     ctx.fillRect(0, 0, W, H);
 
-    const scale = (H * 0.52) / st.heightCm; // px per cm
+    // FIXED px-per-cm scale (independent of runner height) so the figure is
+    // drawn to scale: a taller runner is visibly taller on the canvas. The
+    // divisor is tuned so the 140–210 cm range fits the stage with margin.
+    const scale = H / 300;
     const cx = W * 0.46;
-    const groundY = H * 0.80;
+    const groundY = H * 0.82;
 
     if (opts.scroll) groundScroll += st.speedKmh * 100000 / 3600 * (dtMs / 1000);
-    drawGround(groundY, cx, st.gradePct, st.surface, scale);
+    drawGround(groundY, cx, st.gradePct, st.surface, scale, st.strideLenM);
 
-    // ghost first (behind the live runner), sharing the same phase clock
+    // ghost first (behind the live runner), sharing the same phase clock —
+    // always a faint skeleton, whatever style the live figure uses
     if (opts.ghost) {
       const gp = figureParams(Object.assign({}, eff.ideal, { footStrike: "midfoot" }), true);
       const gfig = computeFigure(phi, gp, scale, cx, groundY);
-      drawFigure(gfig, colors.ghost, null, 0.32, false, scale);
+      drawSkeleton(gfig, colors.ghost, null, 0.32);
     }
 
     const p = figureParams(st, false);
@@ -374,7 +438,7 @@
     ctx.beginPath(); ctx.moveTo(fig.hip.x, fig.hip.y); ctx.lineTo(fig.hip.x, groundY); ctx.stroke();
     ctx.restore();
 
-    drawFigure(fig, colors.ink, colors.series1, 1, opts.silhouette, scale);
+    drawFigure(fig, opts.figureStyle, colors.series1, colors.ink, colors.series1, 1, scale);
 
     if (eff.overstrideLevel > 0) drawBrakingVector(fig, eff.overstrideLevel, st.overstrideCm, scale);
 

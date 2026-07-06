@@ -23,7 +23,7 @@
     R.renderer.render(phi, {
       eff,
       ghost: document.getElementById("ghostToggle").checked,
-      silhouette: document.getElementById("silhouetteToggle").checked,
+      figureStyle: document.getElementById("figureStyle").value,
       scroll: document.getElementById("scrollToggle").checked,
     }, dt);
 
