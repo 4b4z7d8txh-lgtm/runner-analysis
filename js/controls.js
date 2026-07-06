@@ -22,8 +22,36 @@
       set(parseFloat(input.value));
       syncAll();
     });
+    addSteppers(input, set);
     return show;
   }
+
+  /* wrap a range input with − / + fine-adjust buttons (one step each) */
+  function addSteppers(input, set) {
+    const step = parseFloat(input.step) || 1;
+    const min = parseFloat(input.min), max = parseFloat(input.max);
+    const decimals = (String(input.step).split(".")[1] || "").length;
+    const wrap = document.createElement("div");
+    wrap.className = "stepper-wrap";
+    input.parentNode.insertBefore(wrap, input);
+    const mk = (label, delta) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "stepper"; b.textContent = label;
+      b.setAttribute("aria-label", (delta < 0 ? "decrease " : "increase ") + input.id);
+      b.addEventListener("click", () => {
+        if (input.disabled) return;
+        const next = clamp(parseFloat(input.value) + delta, min, max);
+        input.value = decimals ? next.toFixed(decimals) : String(Math.round(next));
+        set(parseFloat(input.value));
+        syncAll();
+      });
+      return b;
+    };
+    wrap.appendChild(mk("−", -step));
+    wrap.appendChild(input);
+    wrap.appendChild(mk("+", step));
+  }
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
   const syncers = [];
 

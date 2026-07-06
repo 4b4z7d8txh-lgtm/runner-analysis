@@ -173,6 +173,24 @@ input[type="range"]::-moz-range-thumb {
 }
 #profileCanvas { width: 100%; height: 46px; border-radius: 6px; }
 
+/* − / + fine-adjust steppers wrapping each slider */
+.stepper-wrap { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.stepper-wrap input[type="range"] { flex: 1; min-width: 0; }
+.stepper {
+  flex: none;
+  width: 19px; height: 19px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  font: inherit; font-size: 14px; line-height: 1;
+  color: var(--text-secondary);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.stepper:hover { border-color: var(--baseline); color: var(--text-primary); }
+.stepper:active { background: var(--grid); }
+
 /* ---------------- stage ---------------- */
 .stage {
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
