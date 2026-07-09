@@ -111,7 +111,21 @@
     { until: 80, grade: -9 },  // descent
     { until: 100, grade: 0 },  // flat finish
   ];
+  // an uploaded GPX course (grade[]/elev[] sampled at 0..100 %) overrides the
+  // synthetic profile when present
+  let course = null;
+  function setCourse(c) { course = c; }
+  function clearCourse() { course = null; }
+  function getCourse() { return course; }
+
+  function sampleAt(arr, t) {
+    const x = clamp(t, 0, 100) / 100 * (arr.length - 1);
+    const i = Math.floor(x), f = x - i;
+    return i + 1 < arr.length ? lerp(arr[i], arr[i + 1], f) : arr[i];
+  }
+
   function profileGrade(t) {
+    if (course) return sampleAt(course.grade, t);
     let prevEnd = 0, prevGrade = PROFILE[0].grade;
     for (const seg of PROFILE) {
       if (t <= seg.until) {
@@ -122,6 +136,9 @@
     }
     return 0;
   }
+
+  // elevation (m) at course position t ∈ [0,100]; only meaningful with a course
+  function profileElev(t) { return course ? sampleAt(course.elev, t) : 0; }
 
   /* =======================================================================
      Ideal-posture model (formulas 2–7). Computed for the CURRENT speed,
@@ -281,7 +298,8 @@
   window.RunSim.model = {
     state, RATIOS, EXPERIENCE, SURFACES, PRESETS, PROFILE,
     setSpeed, setCadence, setStride, setHeight, speedMPerMin,
-    profileGrade, ideal, efficiency, applyPreset, resetToIdeal,
+    profileGrade, profileElev, ideal, efficiency, applyPreset, resetToIdeal,
+    setCourse, clearCourse, getCourse,
     clamp, lerp,
   };
 })();

@@ -97,6 +97,7 @@
       $("profileRow").hidden = !st.profileMode;
       $("profileCanvas").hidden = !st.profileMode;
       $("grade").disabled = st.profileMode; // grade follows the profile
+      $("sectionAdvice").hidden = !st.profileMode;
       if (st.profileMode) applyProfile();
       syncAll();
       drawProfile();
@@ -105,6 +106,18 @@
       st.profilePos = v;
       applyProfile();
     }, v => v.toFixed(0)));
+
+    /* ----- GPX course upload ----- */
+    $("gpxFile").addEventListener("change", e => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => loadCourseText(reader.result, file.name);
+      reader.onerror = () => showCourseError("Could not read that file.");
+      reader.readAsText(file);
+      e.target.value = ""; // allow re-uploading the same file
+    });
+    $("gpxClear").addEventListener("click", clearCourse);
 
     /* ----- running characteristics (linked triad) ----- */
     $("speedUnit").addEventListener("change", e => {
@@ -164,39 +177,135 @@
     const st = M().state;
     st.gradePct = Math.round(M().profileGrade(st.profilePos) * 2) / 2;
     drawProfile();
+    updateAdvice();
   }
 
-  /* tiny course cross-section with a position marker */
+  /* ---- GPX course loading ------------------------------------------------ */
+  function loadCourseText(text, filename) {
+    let course;
+    try {
+      course = window.RunSim.gpx.parse(text, filename.replace(/\.gpx$/i, ""));
+    } catch (err) {
+      showCourseError(err.message || "Could not parse this GPX.");
+      return;
+    }
+    $("courseErr").hidden = true;
+    M().setCourse(course);
+
+    // switch into profile mode and reset to the start line
+    const st = M().state;
+    st.profileMode = true;
+    st.profilePos = 0;
+    $("profileMode").checked = true;
+    $("profileRow").hidden = false;
+    $("profileCanvas").hidden = false;
+    $("sectionAdvice").hidden = false;
+    $("grade").disabled = true;
+    $("gpxClear").hidden = false;
+
+    const km = (course.distM / 1000).toFixed(2);
+    $("courseMeta").hidden = false;
+    $("courseMeta").innerHTML =
+      `<b>${escapeHtml(course.name)}</b> · ${km} km · ↑${Math.round(course.gainM)} m ↓${Math.round(course.lossM)} m` +
+      ` · grade ${course.minGrade.toFixed(0)}%…+${course.maxGrade.toFixed(0)}%`;
+
+    applyProfile();
+    syncAll();
+  }
+
+  function clearCourse() {
+    M().clearCourse();
+    $("courseMeta").hidden = true;
+    $("gpxClear").hidden = true;
+    $("courseErr").hidden = true;
+    applyProfile(); // reverts to the synthetic demo profile
+    syncAll();
+  }
+
+  function showCourseError(msg) {
+    const el = $("courseErr");
+    el.textContent = msg;
+    el.hidden = false;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  /* short coaching cue for the current section's grade */
+  function sectionAdvice(g) {
+    if (g > 8) return "Steep climb — shorten stride, lift cadence, lean from the ankles, drive the arms.";
+    if (g > 3) return "Climb — keep effort even, quicker lighter steps, slight forward lean, don't over-stride.";
+    if (g > 1) return "Gentle rise — hold form with a small cadence bump.";
+    if (g >= -1) return "Flat — settle into an economical cruising rhythm.";
+    if (g >= -3) return "Gentle descent — let gravity help, stay tall, avoid braking.";
+    if (g >= -8) return "Descent — quick light steps, land under the hips, stay in control.";
+    return "Steep downhill — short quick steps, stay upright, don't heel-brake or over-stride.";
+  }
+
+  function updateAdvice() {
+    const el = $("sectionAdvice");
+    if (el.hidden) return;
+    const st = M().state, course = M().getCourse();
+    const g = st.gradePct;
+    let head;
+    if (course) {
+      const dist = st.profilePos / 100 * course.distM / 1000;
+      const elev = M().profileElev(st.profilePos);
+      head = `${dist.toFixed(2)} km · ${Math.round(elev)} m · ${g > 0 ? "+" : ""}${g.toFixed(1)}%`;
+    } else {
+      head = `${g > 0 ? "+" : ""}${g.toFixed(1)}% grade`;
+    }
+    el.innerHTML = `<b>${head}</b> — ${sectionAdvice(g)}`;
+  }
+
+  /* course cross-section with a position marker; uses real GPX elevation when
+     a course is loaded, otherwise integrates the synthetic grade */
   function drawProfile() {
     const canvas = $("profileCanvas");
     if (canvas.hidden) return;
     const ctx = canvas.getContext("2d");
     const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth || 240, h = 46;
+    const w = canvas.clientWidth || 240, h = 70;
     canvas.width = w * dpr; canvas.height = h * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
     const cs = getComputedStyle(document.documentElement);
     const v = n => cs.getPropertyValue(n).trim();
+    const course = M().getCourse();
 
-    // integrate grade → elevation shape
-    const pts = [];
-    let elev = 0, minE = 0, maxE = 1;
-    for (let t = 0; t <= 100; t += 1) {
-      elev += M().profileGrade(t);
-      pts.push(elev);
-      minE = Math.min(minE, elev); maxE = Math.max(maxE, elev);
+    // sample elevation (real course metres, or integrated synthetic units)
+    const N = 100, pts = [];
+    let minE = Infinity, maxE = -Infinity;
+    if (course) {
+      for (let i = 0; i <= N; i++) { const e = M().profileElev(i / N * 100); pts.push(e); minE = Math.min(minE, e); maxE = Math.max(maxE, e); }
+    } else {
+      let elev = 0; minE = 0; maxE = 1;
+      for (let t = 0; t <= N; t++) { elev += M().profileGrade(t); pts.push(elev); minE = Math.min(minE, elev); maxE = Math.max(maxE, elev); }
     }
-    const X = i => (i / 100) * (w - 4) + 2;
-    const Y = e => h - 6 - (h - 14) * ((e - minE) / (maxE - minE));
+    const span = Math.max(1e-6, maxE - minE);
+    const X = i => (i / N) * (w - 4) + 2;
+    const Y = e => h - 14 - (h - 24) * ((e - minE) / span);
+
+    // baseline distance ticks for a loaded course
+    if (course) {
+      ctx.strokeStyle = v("--grid"); ctx.fillStyle = v("--text-muted");
+      ctx.lineWidth = 1; ctx.font = "9px system-ui, sans-serif"; ctx.textAlign = "center";
+      const km = course.distM / 1000;
+      const stepKm = km > 20 ? 5 : km > 8 ? 2 : km > 3 ? 1 : 0.5;
+      for (let d = 0; d <= km + 1e-6; d += stepKm) {
+        const x = X((d / km) * N);
+        ctx.beginPath(); ctx.moveTo(x, h - 13); ctx.lineTo(x, h - 9); ctx.stroke();
+        ctx.fillText(d % 1 === 0 ? `${d}` : `${d}`, x, h - 2);
+      }
+      ctx.textAlign = "start";
+    }
 
     ctx.fillStyle = v("--series-1-track");
-    ctx.beginPath();
-    ctx.moveTo(X(0), h);
+    ctx.beginPath(); ctx.moveTo(X(0), h - 14);
     pts.forEach((e, i) => ctx.lineTo(X(i), Y(e)));
-    ctx.lineTo(X(100), h);
-    ctx.closePath(); ctx.fill();
+    ctx.lineTo(X(N), h - 14); ctx.closePath(); ctx.fill();
 
     ctx.strokeStyle = v("--series-1");
     ctx.lineWidth = 2; ctx.lineJoin = "round";
@@ -205,12 +314,16 @@
     ctx.stroke();
 
     // position marker with surface ring
-    const p = M().state.profilePos;
-    const i = Math.round(p);
+    const px = M().state.profilePos / 100 * N;
+    const i = Math.round(px);
+    const my = Y(pts[Math.max(0, Math.min(N, i))]);
+    ctx.strokeStyle = v("--text-muted"); ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(X(px), h - 14); ctx.lineTo(X(px), my); ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.fillStyle = v("--surface-1");
-    ctx.beginPath(); ctx.arc(X(i), Y(pts[i]), 6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(X(px), my, 6, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = v("--series-1");
-    ctx.beginPath(); ctx.arc(X(i), Y(pts[i]), 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(X(px), my, 4, 0, Math.PI * 2); ctx.fill();
   }
 
   window.RunSim = window.RunSim || {};

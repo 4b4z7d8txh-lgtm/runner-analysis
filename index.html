@@ -103,18 +103,30 @@
             <input type="range" id="grade" min="-15" max="15" step="0.5" value="0">
             <output id="grade-out">0</output>
           </label>
+          <div class="row file-row">
+            <span>Course (GPX)
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Upload a .gpx track with elevation. Its real climb/descent profile replaces the demo course; scrub “Course position” to walk each section and watch how cadence, stride and trunk lean should adapt.</span></span>
+            </span>
+            <div class="file-actions">
+              <label class="filebtn">Upload GPX<input type="file" id="gpxFile" accept=".gpx,application/gpx+xml,application/xml,text/xml" hidden></label>
+              <button type="button" class="btn ghostbtn" id="gpxClear" hidden>Clear</button>
+            </div>
+          </div>
+          <div class="course-meta" id="courseMeta" hidden></div>
+          <div class="course-err" id="courseErr" hidden></div>
           <label class="row checkbox-row" for="profileMode">
             <span>Elevation profile mode</span>
             <input type="checkbox" id="profileMode">
           </label>
           <label class="row" for="profilePos" id="profileRow" hidden>
             <span>Course position <em class="unit">%</em>
-              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Scrub along a flat → uphill → downhill → flat course. The grade slider follows the profile so you can watch the runner adapt continuously.</span></span>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Scrub along the course. The grade slider follows the profile so you can watch the runner adapt continuously. Upload a GPX to replace the demo course with a real one.</span></span>
             </span>
             <input type="range" id="profilePos" min="0" max="100" step="0.5" value="0">
             <output id="profilePos-out">0</output>
           </label>
-          <canvas id="profileCanvas" width="240" height="46" hidden aria-label="Elevation profile"></canvas>
+          <canvas id="profileCanvas" width="240" height="70" hidden aria-label="Elevation profile"></canvas>
+          <div class="section-advice" id="sectionAdvice" hidden></div>
         </div>
       </details>
 
@@ -292,6 +304,7 @@
 </div>
 
 <script src="js/runnerModel.js"></script>
+<script src="js/gpx.js"></script>
 <script src="js/analytics.js"></script>
 <script src="js/renderer.js"></script>
 <script src="js/controls.js"></script>
