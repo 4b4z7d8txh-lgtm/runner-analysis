@@ -125,8 +125,24 @@
             <input type="range" id="profilePos" min="0" max="100" step="0.5" value="0">
             <output id="profilePos-out">0</output>
           </label>
+          <div class="row play-row" id="playRow" hidden>
+            <span>Autoplay
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Play walks the course position forward in real time at your current running speed. Use 5×–100× to fly through a long course quickly.</span></span>
+            </span>
+            <div class="play-controls">
+              <button type="button" class="btn playbtn" id="playBtn" aria-label="Play course">▶ Play</button>
+              <select id="playSpeed" aria-label="Playback speed">
+                <option value="1">1×</option>
+                <option value="5">5×</option>
+                <option value="10">10×</option>
+                <option value="50">50×</option>
+                <option value="100">100×</option>
+              </select>
+            </div>
+          </div>
           <canvas id="profileCanvas" width="240" height="70" hidden aria-label="Elevation profile"></canvas>
           <div class="section-advice" id="sectionAdvice" hidden></div>
+          <div class="tough" id="toughSections" hidden></div>
         </div>
       </details>
 

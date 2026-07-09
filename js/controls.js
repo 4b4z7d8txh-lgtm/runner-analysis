@@ -10,6 +10,8 @@
   const $ = id => document.getElementById(id);
 
   let paceMode = false; // speed slider shows min/km instead of km/h
+  let playing = false;  // autoplay walking the course position forward
+  let playSpeed = 1;    // playback multiplier (1×–100×)
 
   /* ---------- generic slider ↔ state binding ----------------------------- */
   function bindRange(id, get, set, fmt) {
@@ -98,6 +100,9 @@
       $("profileCanvas").hidden = !st.profileMode;
       $("grade").disabled = st.profileMode; // grade follows the profile
       $("sectionAdvice").hidden = !st.profileMode;
+      $("playRow").hidden = !st.profileMode;
+      $("toughSections").hidden = !st.profileMode || !M().getCourse();
+      if (!st.profileMode) stopPlay();
       if (st.profileMode) applyProfile();
       syncAll();
       drawProfile();
@@ -118,6 +123,10 @@
       e.target.value = ""; // allow re-uploading the same file
     });
     $("gpxClear").addEventListener("click", clearCourse);
+
+    /* ----- autoplay ----- */
+    $("playBtn").addEventListener("click", () => (playing ? stopPlay() : startPlay()));
+    $("playSpeed").addEventListener("change", e => { playSpeed = parseFloat(e.target.value); });
 
     /* ----- running characteristics (linked triad) ----- */
     $("speedUnit").addEventListener("change", e => {
@@ -200,8 +209,10 @@
     $("profileRow").hidden = false;
     $("profileCanvas").hidden = false;
     $("sectionAdvice").hidden = false;
+    $("playRow").hidden = false;
     $("grade").disabled = true;
     $("gpxClear").hidden = false;
+    renderTough(course);
 
     const km = (course.distM / 1000).toFixed(2);
     $("courseMeta").hidden = false;
@@ -218,8 +229,67 @@
     $("courseMeta").hidden = true;
     $("gpxClear").hidden = true;
     $("courseErr").hidden = true;
+    $("toughSections").hidden = true;
+    $("toughSections").innerHTML = "";
     applyProfile(); // reverts to the synthetic demo profile
     syncAll();
+  }
+
+  /* ---- autoplay: walk the course position forward over time -------------- */
+  function startPlay() {
+    const st = M().state;
+    if (st.profilePos >= 100) st.profilePos = 0; // restart from the start line
+    playing = true;
+    const b = $("playBtn");
+    b.textContent = "⏸ Pause"; b.classList.add("playing");
+    b.setAttribute("aria-label", "Pause course");
+  }
+  function stopPlay() {
+    playing = false;
+    const b = $("playBtn");
+    b.textContent = "▶ Play"; b.classList.remove("playing");
+    b.setAttribute("aria-label", "Play course");
+  }
+  /* called every animation frame from main.js */
+  function tickAutoplay(dtMs) {
+    if (!playing || !M().state.profileMode) return;
+    const st = M().state, course = M().getCourse();
+    const vMs = Math.max(0.1, st.speedKmh * 1000 / 3600);
+    const totalSec = course ? course.distM / vMs : 60; // synthetic loop ≈ 60 s
+    st.profilePos = Math.min(100, st.profilePos + (dtMs / 1000) / totalSec * 100 * playSpeed);
+    applyProfile();
+    syncAll();
+    if (st.profilePos >= 100) stopPlay();
+  }
+
+  /* ---- toughest sections list ------------------------------------------- */
+  function renderTough(course) {
+    const el = $("toughSections");
+    const secs = window.RunSim.gpx.sections(course, 4);
+    if (!secs.length) { el.hidden = true; el.innerHTML = ""; return; }
+    const rows = secs.map(s => {
+      const climb = s.kind === "climb";
+      const arrow = climb ? "▲" : "▼";
+      const cls = climb ? "up" : "down";
+      const grade = `${s.avgGrade > 0 ? "+" : ""}${s.avgGrade.toFixed(1)}%`;
+      const elev = `${s.elevChange > 0 ? "+" : ""}${Math.round(s.elevChange)} m`;
+      return `<button type="button" class="tough-row ${cls}" data-pos="${s.peakPct.toFixed(2)}"
+        title="peak ${s.maxGrade > 0 ? "+" : ""}${s.maxGrade.toFixed(1)}%">
+        <span class="tough-arrow">${arrow}</span>
+        <span class="tough-where">${s.startKm.toFixed(1)}–${s.endKm.toFixed(1)} km</span>
+        <span class="tough-nums">${grade} · ${elev} · ${((s.endKm - s.startKm)).toFixed(1)} km</span>
+      </button>`;
+    }).join("");
+    el.innerHTML = `<div class="tough-head">Toughest sections</div>${rows}`;
+    el.hidden = false;
+    el.querySelectorAll(".tough-row").forEach(btn => {
+      btn.addEventListener("click", () => {
+        stopPlay();
+        M().state.profilePos = parseFloat(btn.dataset.pos);
+        applyProfile();
+        syncAll();
+      });
+    });
   }
 
   function showCourseError(msg) {
@@ -327,5 +397,5 @@
   }
 
   window.RunSim = window.RunSim || {};
-  window.RunSim.controls = { init, syncAll, paceMode: () => paceMode };
+  window.RunSim.controls = { init, syncAll, tickAutoplay, paceMode: () => paceMode };
 })();

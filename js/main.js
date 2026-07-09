@@ -18,6 +18,8 @@
     // cadence spm → stride cycles (2 steps) per ms
     phi = (phi + dt * R.model.state.cadenceSpm / 120000) % 1;
 
+    R.controls.tickAutoplay(dt); // advance the course position if playing
+
     const eff = R.model.efficiency(); // one evaluation shared per frame
 
     R.renderer.render(phi, {

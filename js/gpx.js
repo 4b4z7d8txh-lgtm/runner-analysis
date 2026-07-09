@@ -89,6 +89,54 @@
     };
   }
 
+  /* Segment a course into sustained climbs / descents and rank them by how
+     demanding they are. Returns up to `top` sections, hardest first. */
+  function sections(course, top = 4) {
+    const g = course.grade, elev = course.elev, N = g.length, distM = course.distM;
+    const cls = v => (v > 1.5 ? 1 : v < -1.5 ? -1 : 0);
+
+    // contiguous runs of the same sign, bridging single flat samples
+    const runs = [];
+    let cur = null, gap = 0;
+    for (let i = 0; i < N; i++) {
+      const c = cls(g[i]);
+      if (cur && (c === cur.c || (c === 0 && gap < 2))) {
+        if (c === 0) gap++; else { gap = 0; cur.end = i; }
+      } else {
+        if (cur) runs.push(cur);
+        cur = c === 0 ? null : { c, start: i, end: i };
+        gap = 0;
+      }
+    }
+    if (cur) runs.push(cur);
+
+    const per = distM / (N - 1);
+    const out = runs.map(r => {
+      const a = Math.max(0, r.start - 1), b = Math.min(N - 1, r.end);
+      const lengthM = (b - a) * per;
+      const dElev = elev[b] - elev[a];
+      const avgGrade = lengthM > 0 ? dElev / lengthM * 100 : 0;
+      const kind = r.c > 0 ? "climb" : "descent";
+      // climbs cost by elevation gained; descents by steepness × length
+      // (control/impact load) — both scaled so they compare fairly
+      const score = kind === "climb"
+        ? Math.abs(dElev) * (1 + Math.abs(avgGrade) / 20)
+        : Math.abs(dElev) * (1 + Math.abs(avgGrade) / 12);
+      // steepest sample in the run — the representative point to jump to
+      let peak = a;
+      for (let i = a; i <= b; i++) if (Math.abs(g[i]) > Math.abs(g[peak])) peak = i;
+      return {
+        kind, score, lengthM, avgGrade, elevChange: dElev, maxGrade: g[peak],
+        startPct: (a / (N - 1)) * 100, endPct: (b / (N - 1)) * 100,
+        peakPct: (peak / (N - 1)) * 100,
+        startKm: a * per / 1000, endKm: b * per / 1000,
+      };
+    }).filter(s => s.lengthM >= per * 1.5 && Math.abs(s.avgGrade) >= 2 && Math.abs(s.elevChange) >= 5);
+
+    out.sort((x, y) => y.score - x.score);
+    return out.slice(0, top);
+  }
+
   window.RunSim = window.RunSim || {};
-  window.RunSim.gpx = { parse };
+  window.RunSim.gpx = { parse, sections };
 })();
