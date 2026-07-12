@@ -30,6 +30,10 @@
   /* scene */
   --sky:     #eef3f8;
   --ground:  #d8d5c9;
+
+  /* diverging grade colours (elevation chart: up = warm, down = cool) */
+  --grade-up:   #e34948;
+  --grade-down: #2a78d6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -48,6 +52,8 @@
     --series-5:       #9085e9;
     --sky:    #14181e;
     --ground: #26251f;
+    --grade-up:   #e66767;
+    --grade-down: #3987e5;
   }
 }
 
@@ -58,6 +64,7 @@
   --grid: #e1e0d9; --baseline: #c3c2b7; --border: rgba(11,11,11,0.10);
   --series-1: #2a78d6; --series-1-track: #cde2fb; --series-1-band: #9ec5f4;
   --series-5: #4a3aa7; --sky: #eef3f8; --ground: #d8d5c9;
+  --grade-up: #e34948; --grade-down: #2a78d6;
 }
 :root[data-theme="dark"] {
   --page: #0d0d0d; --surface-1: #1a1a19;
@@ -65,6 +72,7 @@
   --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
   --series-1: #3987e5; --series-1-track: #184f95; --series-1-band: #1c5cab;
   --series-5: #9085e9; --sky: #14181e; --ground: #26251f;
+  --grade-up: #e66767; --grade-down: #3987e5;
 }
 
 * { box-sizing: border-box; }
@@ -175,7 +183,7 @@ input[type="range"]::-moz-range-thumb {
 
 /* GPX upload row + course readouts */
 .file-row { grid-template-columns: 108px 1fr; }
-.file-actions { display: flex; gap: 6px; align-items: center; }
+.file-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .filebtn {
   display: inline-block; cursor: pointer;
   font-size: 12px; font-weight: 600;
@@ -217,7 +225,7 @@ input[type="range"]::-moz-range-thumb {
 .tough { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .tough-head { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
 .tough-row {
-  display: grid; grid-template-columns: 16px 74px 1fr; gap: 7px; align-items: center;
+  display: grid; grid-template-columns: 16px auto 1fr auto; gap: 7px; align-items: center;
   width: 100%; text-align: left; cursor: pointer;
   font: inherit; font-size: 11.5px; color: var(--text-secondary);
   background: var(--surface-1); border: 1px solid var(--border);
@@ -227,8 +235,8 @@ input[type="range"]::-moz-range-thumb {
 .tough-arrow { font-size: 12px; font-weight: 700; text-align: center; }
 .tough-row.up .tough-arrow { color: var(--status-serious); }
 .tough-row.down .tough-arrow { color: var(--series-1); }
-.tough-where { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
-.tough-nums { color: var(--text-muted); font-variant-numeric: tabular-nums; text-align: right; }
+.tough-where { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tough-nums { color: var(--text-muted); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 
 /* − / + fine-adjust steppers wrapping each slider */
 .stepper-wrap { display: flex; align-items: center; gap: 5px; min-width: 0; }
@@ -334,3 +342,6 @@ input[type="range"]::-moz-range-thumb {
 /* keep tooltips on-screen at panel edges */
 .controls .tipbox { left: 0; transform: none; }
 .dash .tipbox { left: auto; right: 0; transform: none; }
+
+.tough-split { color: var(--text-primary); font-weight: 650; font-variant-numeric: tabular-nums; }
+.tough-note { float: right; font-weight: 500; color: var(--text-muted); text-transform: none; letter-spacing: 0; }

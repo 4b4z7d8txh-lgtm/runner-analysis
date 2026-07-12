@@ -60,6 +60,7 @@
   /* refresh every control from the model (after presets / linked updates) */
   function syncAll() {
     for (const s of syncers) s();
+    updatePaceDependent(); // section splits & course time follow the pace
   }
 
   function fmt1(v) { return v.toFixed(1); }
@@ -123,6 +124,7 @@
       e.target.value = ""; // allow re-uploading the same file
     });
     $("gpxClear").addEventListener("click", clearCourse);
+    $("gpxExport").addEventListener("click", exportPlan);
 
     /* ----- autoplay ----- */
     $("playBtn").addEventListener("click", () => (playing ? stopPlay() : startPlay()));
@@ -212,22 +214,20 @@
     $("playRow").hidden = false;
     $("grade").disabled = true;
     $("gpxClear").hidden = false;
+    $("gpxExport").hidden = false;
+    $("courseMeta").hidden = false;
     renderTough(course);
 
-    const km = (course.distM / 1000).toFixed(2);
-    $("courseMeta").hidden = false;
-    $("courseMeta").innerHTML =
-      `<b>${escapeHtml(course.name)}</b> · ${km} km · ↑${Math.round(course.gainM)} m ↓${Math.round(course.lossM)} m` +
-      ` · grade ${course.minGrade.toFixed(0)}%…+${course.maxGrade.toFixed(0)}%`;
-
     applyProfile();
-    syncAll();
+    syncAll(); // also fills courseMeta + splits via updatePaceDependent
   }
 
   function clearCourse() {
     M().clearCourse();
+    toughSecs = [];
     $("courseMeta").hidden = true;
     $("gpxClear").hidden = true;
+    $("gpxExport").hidden = true;
     $("courseErr").hidden = true;
     $("toughSections").hidden = true;
     $("toughSections").innerHTML = "";
@@ -263,24 +263,40 @@
   }
 
   /* ---- toughest sections list ------------------------------------------- */
+  let toughSecs = []; // kept for live split-time updates when pace changes
+
+  function fmtTime(sec) {
+    sec = Math.round(sec);
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+             : `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  /* grade-adjusted time to cover a section at the current speed */
+  function sectionSplitSec(s) {
+    const v = Math.max(0.1, M().state.speedKmh / 3.6);
+    return s.lengthM / v * M().gradePaceFactor(s.avgGrade);
+  }
+
   function renderTough(course) {
     const el = $("toughSections");
-    const secs = window.RunSim.gpx.sections(course, 4);
-    if (!secs.length) { el.hidden = true; el.innerHTML = ""; return; }
-    const rows = secs.map(s => {
+    toughSecs = window.RunSim.gpx.sections(course, 4);
+    if (!toughSecs.length) { el.hidden = true; el.innerHTML = ""; return; }
+    const rows = toughSecs.map(s => {
       const climb = s.kind === "climb";
       const arrow = climb ? "▲" : "▼";
       const cls = climb ? "up" : "down";
       const grade = `${s.avgGrade > 0 ? "+" : ""}${s.avgGrade.toFixed(1)}%`;
       const elev = `${s.elevChange > 0 ? "+" : ""}${Math.round(s.elevChange)} m`;
       return `<button type="button" class="tough-row ${cls}" data-pos="${s.peakPct.toFixed(2)}"
-        title="peak ${s.maxGrade > 0 ? "+" : ""}${s.maxGrade.toFixed(1)}%">
+        title="peak ${s.maxGrade > 0 ? "+" : ""}${s.maxGrade.toFixed(1)}% · ${(s.endKm - s.startKm).toFixed(1)} km long">
         <span class="tough-arrow">${arrow}</span>
         <span class="tough-where">${s.startKm.toFixed(1)}–${s.endKm.toFixed(1)} km</span>
-        <span class="tough-nums">${grade} · ${elev} · ${((s.endKm - s.startKm)).toFixed(1)} km</span>
+        <span class="tough-nums">${grade} · ${elev}</span>
+        <span class="tough-split">${fmtTime(sectionSplitSec(s))}</span>
       </button>`;
     }).join("");
-    el.innerHTML = `<div class="tough-head">Toughest sections</div>${rows}`;
+    el.innerHTML = `<div class="tough-head">Toughest sections <span class="tough-note">est. split at your pace</span></div>${rows}`;
     el.hidden = false;
     el.querySelectorAll(".tough-row").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -292,6 +308,72 @@
     });
   }
 
+  /* ---- pace-dependent readouts: refreshed whenever anything changes ------ */
+  function updatePaceDependent() {
+    const course = M().getCourse();
+    if (!course) return;
+    // section splits
+    document.querySelectorAll("#toughSections .tough-row").forEach((btn, i) => {
+      const s = toughSecs[i];
+      if (s) btn.querySelector(".tough-split").textContent = fmtTime(sectionSplitSec(s));
+    });
+    // course meta with grade-adjusted total time at the current speed
+    const v = Math.max(0.1, M().state.speedKmh / 3.6);
+    let total = 0;
+    const N = course.grade.length, seg = course.distM / (N - 1);
+    for (let i = 0; i < N - 1; i++) {
+      total += seg / v * M().gradePaceFactor((course.grade[i] + course.grade[i + 1]) / 2);
+    }
+    const km = (course.distM / 1000).toFixed(2);
+    $("courseMeta").innerHTML =
+      `<b>${escapeHtml(course.name)}</b> · ${km} km · ↑${Math.round(course.gainM)} m ↓${Math.round(course.lossM)} m` +
+      ` · grade ${course.minGrade.toFixed(0)}%…+${course.maxGrade.toFixed(0)}%` +
+      `<br>est. <b>${fmtTime(total)}</b> at current pace (grade-adjusted)`;
+  }
+
+  /* ---- per-kilometre plan export (CSV) ----------------------------------- */
+  function buildPlanCsv() {
+    const course = M().getCourse();
+    if (!course) return null;
+    const v = Math.max(0.1, M().state.speedKmh / 3.6);
+    const rows = [[
+      "km_from", "km_to", "avg_grade_pct", "elev_change_m",
+      "est_split", "cumulative_time", "rec_cadence_spm",
+      "rec_trunk_lean_deg", "rec_stride_m", "cue",
+    ]];
+    let cum = 0;
+    const kmN = Math.ceil(course.distM / 1000);
+    for (let k = 0; k < kmN; k++) {
+      const a = k * 1000, b = Math.min((k + 1) * 1000, course.distM);
+      const pa = a / course.distM * 100, pb = b / course.distM * 100;
+      const dElev = M().profileElev(pb) - M().profileElev(pa);
+      const g = dElev / (b - a) * 100;
+      const t = (b - a) / v * M().gradePaceFactor(g);
+      cum += t;
+      const id = M().ideal(g); // grade-specific form recommendations
+      rows.push([
+        (a / 1000).toFixed(2), (b / 1000).toFixed(2), g.toFixed(1), dElev.toFixed(0),
+        fmtTime(t), fmtTime(cum), Math.round(id.cadenceSpm),
+        id.trunkLeanDeg.toFixed(1), id.strideLenM.toFixed(2), sectionAdvice(g),
+      ]);
+    }
+    return rows.map(r => r.map(c =>
+      /[",\n]/.test(String(c)) ? `"${String(c).replace(/"/g, '""')}"` : c
+    ).join(",")).join("\n");
+  }
+
+  function exportPlan() {
+    const csv = buildPlanCsv();
+    if (!csv) return;
+    const name = (M().getCourse().name || "course").replace(/[^\w\-]+/g, "_");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${name}-plan.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   function showCourseError(msg) {
     const el = $("courseErr");
     el.textContent = msg;
@@ -300,6 +382,13 @@
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  /* mix two #rrggbb colours (t = 0 → a, t = 1 → b) */
+  function mixHex(a, b, t) {
+    const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+    const ch = sh => Math.round(((pa >> sh) & 255) + (((pb >> sh) & 255) - ((pa >> sh) & 255)) * t);
+    return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
   }
 
   /* short coaching cue for the current section's grade */
@@ -377,11 +466,18 @@
     pts.forEach((e, i) => ctx.lineTo(X(i), Y(e)));
     ctx.lineTo(X(N), h - 14); ctx.closePath(); ctx.fill();
 
-    ctx.strokeStyle = v("--series-1");
-    ctx.lineWidth = 2; ctx.lineJoin = "round";
-    ctx.beginPath();
-    pts.forEach((e, i) => i ? ctx.lineTo(X(i), Y(e)) : ctx.moveTo(X(i), Y(e)));
-    ctx.stroke();
+    // profile line coloured by grade: diverging red (up) / blue (down) over
+    // a neutral mid — steeper = more saturated
+    ctx.lineWidth = 2.5; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    const up = v("--grade-up"), down = v("--grade-down"), mid = v("--text-muted");
+    for (let i = 0; i < N; i++) {
+      const g = (M().profileGrade(i / N * 100) + M().profileGrade((i + 1) / N * 100)) / 2;
+      const t = Math.pow(Math.min(1, Math.abs(g) / 12), 0.7);
+      ctx.strokeStyle = mixHex(mid, g >= 0 ? up : down, t);
+      ctx.beginPath();
+      ctx.moveTo(X(i), Y(pts[i])); ctx.lineTo(X(i + 1), Y(pts[i + 1]));
+      ctx.stroke();
+    }
 
     // position marker with surface ring
     const px = M().state.profilePos / 100 * N;
@@ -397,5 +493,5 @@
   }
 
   window.RunSim = window.RunSim || {};
-  window.RunSim.controls = { init, syncAll, tickAutoplay, paceMode: () => paceMode };
+  window.RunSim.controls = { init, syncAll, tickAutoplay, buildPlanCsv, paceMode: () => paceMode };
 })();

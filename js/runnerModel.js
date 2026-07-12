@@ -140,15 +140,23 @@
   // elevation (m) at course position t ∈ [0,100]; only meaningful with a course
   function profileElev(t) { return course ? sampleAt(course.elev, t) : 0; }
 
+  /* Grade-adjusted pace factor: how much longer (>1) or shorter (<1) a metre
+     takes on grade g% vs flat, at even effort. Quadratic GAP-style fit:
+     gentle downhills are faster, steep downhills give the gain back to
+     braking/impact control; +10% costs ~1.45×. */
+  function gradePaceFactor(g) {
+    return clamp(1 + 0.03 * g + 0.0015 * g * g, 0.75, 3);
+  }
+
   /* =======================================================================
      Ideal-posture model (formulas 2–7). Computed for the CURRENT speed,
      grade, surface and runner — drives the ghost overlay, the reset-to-ideal
      button, and the deviation penalties in the efficiency score.
      ======================================================================= */
-  function ideal() {
+  function ideal(gradeOverride) {
     const exp = EXPERIENCE[state.experience];
     const surf = SURFACES[state.surface];
-    const g = state.gradePct;
+    const g = gradeOverride === undefined ? state.gradePct : gradeOverride;
     const v = state.speedKmh;
 
     // (3) cadence guideline: experience base, rising gently with speed…
@@ -298,8 +306,8 @@
   window.RunSim.model = {
     state, RATIOS, EXPERIENCE, SURFACES, PRESETS, PROFILE,
     setSpeed, setCadence, setStride, setHeight, speedMPerMin,
-    profileGrade, profileElev, ideal, efficiency, applyPreset, resetToIdeal,
-    setCourse, clearCourse, getCourse,
+    profileGrade, profileElev, gradePaceFactor, ideal, efficiency,
+    applyPreset, resetToIdeal, setCourse, clearCourse, getCourse,
     clamp, lerp,
   };
 })();
