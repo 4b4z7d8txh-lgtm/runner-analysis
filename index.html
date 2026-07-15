@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analytic 2D Running Simulator</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ================= Header ================= -->
+  <header class="topbar">
+    <div class="topbar-title">
+      <h1>Analytic 2D Running Simulator</h1>
+      <span class="subtitle">Sagittal-plane gait &amp; running-economy sandbox
+        <span class="tip" tabindex="0">ⓘ<span class="tipbox">All target ranges shown here are evidence-informed heuristics from running-biomechanics literature, not rigid physiological law. Individual variation is large — treat the ideals as guideline defaults.</span></span>
+      </span>
+    </div>
+    <div class="topbar-actions">
+      <div class="presets" role="group" aria-label="Scenario presets">
+        <button class="btn preset" data-preset="flatRoadEasy">Flat road · easy</button>
+        <button class="btn preset" data-preset="uphillTrail">Steep uphill trail</button>
+        <button class="btn preset" data-preset="downhillRoad">Fast downhill road</button>
+        <button class="btn preset" data-preset="sprintTrack">Sprint on track</button>
+      </div>
+      <button class="btn btn-primary" id="resetIdeal" title="Snap posture &amp; running characteristics to the computed ideal for the current body + terrain">Reset to ideal</button>
+      <button class="btn" id="themeToggle" aria-label="Toggle light/dark theme">◐</button>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <!-- ================= Control panel ================= -->
+    <aside class="controls" id="controls">
+
+      <details open>
+        <summary>Runner anthropometrics</summary>
+        <div class="group">
+          <label class="row" for="height">
+            <span>Height <em class="unit">cm</em></span>
+            <input type="range" id="height" min="140" max="210" step="1" value="175">
+            <output id="height-out">175</output>
+          </label>
+          <label class="row" for="weight">
+            <span>Weight <em class="unit">kg</em></span>
+            <input type="range" id="weight" min="40" max="120" step="1" value="70">
+            <output id="weight-out">70</output>
+          </label>
+          <label class="row" for="legLen">
+            <span>Leg length <em class="unit">cm</em>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Hip-to-ground. Auto-suggested at ~50% of height; move the slider to override (height changes stop updating it once overridden).</span></span>
+            </span>
+            <input type="range" id="legLen" min="60" max="115" step="1" value="88">
+            <output id="legLen-out">88</output>
+          </label>
+          <label class="row" for="torsoLen">
+            <span>Torso length <em class="unit">cm</em></span>
+            <input type="range" id="torsoLen" min="38" max="70" step="1" value="53">
+            <output id="torsoLen-out">53</output>
+          </label>
+          <label class="row" for="armLen">
+            <span>Arm length <em class="unit">cm</em></span>
+            <input type="range" id="armLen" min="50" max="100" step="1" value="77">
+            <output id="armLen-out">77</output>
+          </label>
+          <label class="row" for="footLen">
+            <span>Foot length <em class="unit">cm</em></span>
+            <input type="range" id="footLen" min="18" max="35" step="0.5" value="26">
+            <output id="footLen-out">26</output>
+          </label>
+          <label class="row select-row" for="experience">
+            <span>Experience</span>
+            <select id="experience">
+              <option value="beginner">Beginner</option>
+              <option value="intermediate" selected>Intermediate</option>
+              <option value="advanced">Advanced</option>
+              <option value="elite">Elite</option>
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Terrain / course profile</summary>
+        <div class="group">
+          <label class="row select-row" for="surface">
+            <span>Surface
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Soft surfaces (sand, trail, grass) lengthen ground contact time and raise the energy cost; track slightly shortens it.</span></span>
+            </span>
+            <select id="surface">
+              <option value="road" selected>Road</option>
+              <option value="trail">Trail</option>
+              <option value="track">Track</option>
+              <option value="grass">Grass</option>
+              <option value="sand">Sand</option>
+            </select>
+          </label>
+          <label class="row" for="grade">
+            <span>Grade <em class="unit">%</em>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Positive = uphill. Ideal cadence rises ~5–10 spm uphill and drops downhill; ideal trunk lean adds ~1° per 2% of uphill grade.</span></span>
+            </span>
+            <input type="range" id="grade" min="-15" max="15" step="0.5" value="0">
+            <output id="grade-out">0</output>
+          </label>
+          <div class="row file-row">
+            <span>Course (GPX)
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Upload a .gpx track with elevation. Its real climb/descent profile replaces the demo course; scrub “Course position” to walk each section and watch how cadence, stride and trunk lean should adapt.</span></span>
+            </span>
+            <div class="file-actions">
+              <label class="filebtn">Upload GPX<input type="file" id="gpxFile" accept=".gpx,application/gpx+xml,application/xml,text/xml" hidden></label>
+              <button type="button" class="btn ghostbtn" id="gpxExport" hidden title="Download a per-kilometre pacing &amp; form plan as CSV">Export plan</button>
+              <button type="button" class="btn ghostbtn" id="gpxClear" hidden>Clear</button>
+            </div>
+          </div>
+          <div class="course-meta" id="courseMeta" hidden></div>
+          <div class="course-err" id="courseErr" hidden></div>
+          <label class="row checkbox-row" for="profileMode">
+            <span>Elevation profile mode</span>
+            <input type="checkbox" id="profileMode">
+          </label>
+          <label class="row" for="profilePos" id="profileRow" hidden>
+            <span>Course position <em class="unit">%</em>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Scrub along the course. The grade slider follows the profile so you can watch the runner adapt continuously. Upload a GPX to replace the demo course with a real one.</span></span>
+            </span>
+            <input type="range" id="profilePos" min="0" max="100" step="0.5" value="0">
+            <output id="profilePos-out">0</output>
+          </label>
+          <div class="row play-row" id="playRow" hidden>
+            <span>Autoplay
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Play walks the course position forward in real time at your current running speed. Use 5×–100× to fly through a long course quickly.</span></span>
+            </span>
+            <div class="play-controls">
+              <button type="button" class="btn playbtn" id="playBtn" aria-label="Play course">▶ Play</button>
+              <select id="playSpeed" aria-label="Playback speed">
+                <option value="1">1×</option>
+                <option value="5">5×</option>
+                <option value="10">10×</option>
+                <option value="50">50×</option>
+                <option value="100">100×</option>
+              </select>
+            </div>
+          </div>
+          <canvas id="profileCanvas" width="240" height="70" hidden aria-label="Elevation profile"></canvas>
+          <div class="section-advice" id="sectionAdvice" hidden></div>
+          <div class="tough" id="toughSections" hidden></div>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Running characteristics</summary>
+        <div class="group">
+          <label class="row select-row" for="speedUnit">
+            <span>Speed unit</span>
+            <select id="speedUnit">
+              <option value="kmh" selected>km/h</option>
+              <option value="pace">min/km</option>
+            </select>
+          </label>
+          <label class="row" for="speed">
+            <span>Speed <em class="unit" id="speedUnitLabel">km/h</em></span>
+            <input type="range" id="speed" min="6" max="24" step="0.1" value="10">
+            <output id="speed-out">10.0</output>
+          </label>
+          <label class="row" for="cadence">
+            <span>Cadence <em class="unit">spm</em>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Steps per minute. ~170–180 spm suits most recreational runners, 180–190 elite. If far below target, nudge up 5–10% rather than jumping straight to 180.</span></span>
+            </span>
+            <input type="range" id="cadence" min="140" max="200" step="1" value="164">
+            <output id="cadence-out">164</output>
+          </label>
+          <label class="row" for="stride">
+            <span>Stride length <em class="unit">m</em>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Distance per step. Speed = cadence × stride length is always enforced: changing any one of the three recalculates the others.</span></span>
+            </span>
+            <input type="range" id="stride" min="0.5" max="2.6" step="0.01" value="1.02">
+            <output id="stride-out">1.02</output>
+          </label>
+          <label class="row select-row" for="footStrike">
+            <span>Foot strike</span>
+            <select id="footStrike">
+              <option value="heel">Heel</option>
+              <option value="midfoot" selected>Midfoot</option>
+              <option value="forefoot">Forefoot</option>
+            </select>
+          </label>
+          <label class="row" for="vertOsc">
+            <span>Vertical oscillation <em class="unit">cm</em>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">How much the torso bounces each step. Energy spent going up doesn't move you forward — lower (within reason) is more economical.</span></span>
+            </span>
+            <input type="range" id="vertOsc" min="4" max="12" step="0.1" value="8">
+            <output id="vertOsc-out">8.0</output>
+          </label>
+          <label class="row" for="gct">
+            <span>Ground contact <em class="unit">ms</em>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Time each foot spends on the ground per step. It shortens as you run faster and lengthens on soft surfaces or uphill; ~200–250 ms is a common target band.</span></span>
+            </span>
+            <input type="range" id="gct" min="150" max="300" step="1" value="220">
+            <output id="gct-out">220</output>
+          </label>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Posture overrides</summary>
+        <div class="group">
+          <label class="row" for="trunkLean">
+            <span>Trunk lean <em class="unit">°</em>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Forward lean from vertical (from the ankles, not the waist). Lean into uphills (~+1° per 2% grade); stay tall, not backward-leaning, on downhills.</span></span>
+            </span>
+            <input type="range" id="trunkLean" min="-5" max="20" step="0.5" value="6">
+            <output id="trunkLean-out">6</output>
+          </label>
+          <label class="row" for="kneeLift">
+            <span>Knee lift <em class="unit">°</em>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Peak knee flexion during the swing phase. Higher lift shortens the leg's pendulum and supports faster turnover — sprinters ~100°+, easy jogging ~55°.</span></span>
+            </span>
+            <input type="range" id="kneeLift" min="40" max="110" step="1" value="62">
+            <output id="kneeLift-out">62</output>
+          </label>
+          <label class="row" for="overstride">
+            <span>Foot-strike offset <em class="unit">cm</em>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Horizontal distance from the landing foot to your centre of mass. Landing &gt;10–15 cm ahead is overstriding: each step brakes you and spikes impact load. Slightly ahead-to-under the hips is ideal.</span></span>
+            </span>
+            <input type="range" id="overstride" min="-10" max="25" step="0.5" value="4">
+            <output id="overstride-out">4</output>
+          </label>
+          <label class="row" for="armSwing">
+            <span>Arm swing <em class="unit">°</em></span>
+            <input type="range" id="armSwing" min="10" max="90" step="1" value="42">
+            <output id="armSwing-out">42</output>
+          </label>
+          <label class="row" for="hipDrop">
+            <span>Hip drop <em class="unit">°</em>
+              <span class="tip" tabindex="0">ⓘ<span class="tipbox">Lateral pelvic drop on the swing side (Trendelenburg sign). More than ~4–5° suggests weak hip abductors — a common injury-risk marker.</span></span>
+            </span>
+            <input type="range" id="hipDrop" min="0" max="15" step="0.5" value="2">
+            <output id="hipDrop-out">2</output>
+          </label>
+        </div>
+      </details>
+
+    </aside>
+
+    <!-- ================= Simulation canvas ================= -->
+    <main class="stage">
+      <div class="stage-toolbar">
+        <label class="chk">Figure
+          <select id="figureStyle">
+            <option value="vector" selected>Vector</option>
+            <option value="realistic">Realistic</option>
+            <option value="both">Both</option>
+          </select>
+          <span class="tip" tabindex="0">ⓘ<span class="tipbox">Vector = stick-figure skeleton with joint angles. Realistic = a fleshed body silhouette drawn to scale. Both = the skeleton overlaid on the body.</span></span>
+        </label>
+        <label class="chk"><input type="checkbox" id="ghostToggle" checked> Ideal ghost overlay
+          <span class="tip" tabindex="0">ⓘ<span class="tipbox">Semi-transparent reference runner using the computed ideal posture for the current speed, grade and cadence. Compare your figure against it directly.</span></span>
+        </label>
+        <label class="chk"><input type="checkbox" id="scrollToggle" checked> Scrolling ground</label>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="simCanvas" aria-label="Animated 2D runner"></canvas>
+      </div>
+    </main>
+
+    <!-- ================= Analytics dashboard ================= -->
+    <aside class="dash" id="dash">
+
+      <!-- Efficiency score: hero stat tile -->
+      <section class="tile score-tile" aria-live="polite">
+        <div class="tile-label">Efficiency score
+          <span class="tip" tabindex="0">ⓘ<span class="tipbox">Composite 0–100 running-economy index: cadence &amp; stride deviation from ideal, vertical oscillation, grade-appropriate trunk lean, overstride and hip-drop penalties. Higher is more economical.</span></span>
+        </div>
+        <div class="score-row">
+          <div class="score-value" id="scoreValue">–</div>
+          <div class="score-status" id="scoreStatus"><span class="status-icon" id="scoreIcon">✓</span><span id="scoreLabel">–</span></div>
+        </div>
+        <div class="meter"><div class="meter-track"><div class="meter-fill" id="scoreFill"></div></div></div>
+        <ul class="penalties" id="penaltyList"></ul>
+      </section>
+
+      <!-- Speed / cadence / stride stat tiles with sparklines -->
+      <section class="tile">
+        <div class="stat" id="stat-speed">
+          <div class="stat-head"><span class="tile-label">Speed</span><span class="stat-value"><b id="speedStat">–</b> <i id="speedStatUnit">km/h</i></span></div>
+          <canvas class="spark" id="spark-speed" width="220" height="34"></canvas>
+        </div>
+        <div class="stat" id="stat-cadence">
+          <div class="stat-head"><span class="tile-label">Cadence</span><span class="stat-value"><b id="cadenceStat">–</b> <i>spm</i></span></div>
+          <canvas class="spark" id="spark-cadence" width="220" height="34"></canvas>
+        </div>
+        <div class="stat" id="stat-stride">
+          <div class="stat-head"><span class="tile-label">Stride length</span><span class="stat-value"><b id="strideStat">–</b> <i>m</i></span></div>
+          <canvas class="spark" id="spark-stride" width="220" height="34"></canvas>
+        </div>
+      </section>
+
+      <!-- Range bars: vertical oscillation & GCT vs ideal band -->
+      <section class="tile">
+        <div class="rangebar" id="bar-vo">
+          <div class="stat-head"><span class="tile-label">Vertical oscillation</span><span class="stat-value"><b id="voStat">–</b> <i>cm</i></span></div>
+          <canvas class="rbar" id="rbar-vo" width="220" height="26"></canvas>
+          <div class="rbar-caption" id="voCaption"></div>
+        </div>
+        <div class="rangebar" id="bar-gct">
+          <div class="stat-head"><span class="tile-label">Ground contact time</span><span class="stat-value"><b id="gctStat">–</b> <i>ms</i></span></div>
+          <canvas class="rbar" id="rbar-gct" width="220" height="26"></canvas>
+          <div class="rbar-caption" id="gctCaption"></div>
+        </div>
+      </section>
+
+      <!-- Warnings & recommendations -->
+      <section class="tile">
+        <div class="flagline" id="overstrideFlag"><span class="status-icon">✓</span><span class="flag-text">No overstride</span></div>
+        <div class="flagline" id="leanFlag"><span class="status-icon">✓</span><span class="flag-text">Trunk lean OK</span></div>
+        <div class="flagline" id="cadenceHint"><span class="status-icon">✓</span><span class="flag-text">Cadence in range</span></div>
+      </section>
+
+    </aside>
+  </div>
+</div>
+
+<script src="js/runnerModel.js"></script>
+<script src="js/gpx.js"></script>
+<script src="js/analytics.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/controls.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
